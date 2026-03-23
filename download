@@ -1,0 +1,100 @@
+import { GoogleGenAI, Type } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+export interface AnalysisResult {
+  verdict: "REAL" | "FAKE" | "MISLEADING" | "UNVERIFIED";
+  confidence: number;
+  summary: string;
+  redFlags: string[];
+  factualCheck: {
+    claim: string;
+    status: "CORRECT" | "INCORRECT" | "PARTIAL";
+    source?: string;
+  }[];
+  biasAnalysis: string;
+  deepDive: string;
+  imageUrl?: string;
+}
+
+export async function analyzeNews(text: string): Promise<AnalysisResult> {
+  const model = "gemini-3.1-pro-preview"; // Upgrading for better reasoning
+  
+  const analysisResponse = await ai.models.generateContent({
+    model,
+    contents: `Analyze the following news text for authenticity. Use Google Search to verify claims if necessary.
+    Provide a "deepDive" section that explains the historical context, related events, or why this specific type of misinformation is common.
+    
+    TEXT:
+    ${text}
+    `,
+    config: {
+      tools: [{ googleSearch: {} }],
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          verdict: {
+            type: Type.STRING,
+            enum: ["REAL", "FAKE", "MISLEADING", "UNVERIFIED"],
+          },
+          confidence: { type: Type.NUMBER },
+          summary: { type: Type.STRING },
+          redFlags: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+          },
+          factualCheck: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                claim: { type: Type.STRING },
+                status: { type: Type.STRING, enum: ["CORRECT", "INCORRECT", "PARTIAL"] },
+                source: { type: Type.STRING },
+              },
+              required: ["claim", "status"],
+            },
+          },
+          biasAnalysis: { type: Type.STRING },
+          deepDive: { type: Type.STRING, description: "Educational context and deeper explanation of the topic." },
+        },
+        required: ["verdict", "confidence", "summary", "redFlags", "factualCheck", "biasAnalysis", "deepDive"],
+      },
+    },
+  });
+
+  let result: AnalysisResult;
+  try {
+    result = JSON.parse(analysisResponse.text || "{}");
+  } catch (e) {
+    console.error("Failed to parse Gemini response", e);
+    throw new Error("Analysis failed. Please try again.");
+  }
+
+  // Generate an illustrative image
+  try {
+    const imagePrompt = `An illustrative, high-quality, conceptual digital art piece representing the following news topic: ${result.summary.substring(0, 200)}. Style: Professional, editorial illustration, slightly abstract, clean lines.`;
+    const imageResponse = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: [{ text: imagePrompt }],
+      config: {
+        imageConfig: {
+          aspectRatio: "16:9",
+        },
+      },
+    });
+
+    for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        result.imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+        break;
+      }
+    }
+  } catch (e) {
+    console.error("Image generation failed", e);
+    // Continue without image
+  }
+
+  return result;
+}

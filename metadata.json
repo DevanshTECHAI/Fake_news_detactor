@@ -1,0 +1,5 @@
+{
+  "name": "Copy of VeriTruth: AI Fake News Detector",
+  "description": "A sophisticated AI-powered tool to analyze news articles for credibility, bias, and factual accuracy using Gemini, real-time web grounding, and visual evidence synthesis.",
+  "requestFramePermissions": []
+}
